@@ -2,15 +2,18 @@
 Imports System.Drawing
 Imports System.Threading.Tasks
 Imports System.IO
+Imports System.Windows.Forms
+Imports System.Net.Http
 
 Public Class Form1
     Private WithEvents Timer1 As New Timer()
-    Private ipAddresses As New Dictionary(Of String, String)()
+    Private ipAddresses As New Dictionary(Of String, (String, String))()
     Private tableLayoutPanel As New TableLayoutPanel()
     Private statusStrip As New StatusStrip()
     Private toolStripStatusLabel As New ToolStripStatusLabel()
+    Private toolTip As New ToolTip()
 
-    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+    Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' Initialize TableLayoutPanel
         tableLayoutPanel.Dock = DockStyle.Fill
         tableLayoutPanel.AutoScroll = True
@@ -23,26 +26,40 @@ Public Class Form1
         statusStrip.Dock = DockStyle.Bottom
         Me.Controls.Add(statusStrip)
 
-        Dim iniFilePath As String = Path.Combine(Application.StartupPath, "nodes.ini")
+        ' Initialize ToolTip
+        toolTip.AutoPopDelay = 5000
+        toolTip.InitialDelay = 1000
+        toolTip.ReshowDelay = 500
+        toolTip.ShowAlways = True
 
-        ' Read the .ini file
-        Using reader As New StreamReader(iniFilePath)
+        ' Read the .ini file from GitHub
+        Dim iniFileContent As String = Await ReadIniFileFromUrlAsync("https://raw.githubusercontent.com/AdinNCR/NCR-Fo-Monitoring/refs/heads/master/NCR%20Store%20Monitoring/nodes.ini")
+
+        ' Process the .ini file content
+        Using reader As New StringReader(iniFileContent)
             Dim line As String
             While (InlineAssignHelper(line, reader.ReadLine())) IsNot Nothing
                 If line.Contains("=") Then
                     Dim parts() As String = line.Split("="c)
                     If parts.Length = 2 Then
                         Dim store As String = parts(0).Trim()
-                        Dim ipAddress As String = parts(1).Trim()
-                        ipAddresses(store) = ipAddress
+                        Dim ipAndLocation() As String = parts(1).Split(","c)
+                        If ipAndLocation.Length = 2 Then
+                            Dim ipAddress As String = ipAndLocation(0).Trim()
+                            Dim location As String = ipAndLocation(1).Trim()
+                            ipAddresses(store) = (ipAddress, location)
 
-                        ' Add a new label for each store
-                        Dim label As New Label()
-                        label.Text = store
-                        label.Size = New Size(30, 20)
-                        label.Margin = New Padding(5)
-                        label.ForeColor = Color.White
-                        tableLayoutPanel.Controls.Add(label)
+                            ' Add a new label for each store
+                            Dim label As New Label()
+                            label.Text = store
+                            label.Size = New Size(30, 20)
+                            label.Margin = New Padding(5)
+                            label.ForeColor = Color.White
+                            tableLayoutPanel.Controls.Add(label)
+
+                            ' Set the tooltip for the label
+                            toolTip.SetToolTip(label, $"IP Address: {ipAddress}, Location: {location}")
+                        End If
                     End If
                 End If
             End While
@@ -53,7 +70,7 @@ Public Class Form1
         Timer1.Start()
 
         ' Initial status check
-        UpdateStatusAsync()
+        Await UpdateStatusAsync()
     End Sub
 
     Private Async Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
@@ -66,7 +83,7 @@ Public Class Form1
         Dim tasks As New List(Of Task)()
 
         For Each store As String In ipAddresses.Keys
-            Dim ipAddress As String = ipAddresses(store)
+            Dim ipAddress As String = ipAddresses(store).Item1
             tasks.Add(Task.Run(Async Function()
                                    Dim status As String = Await GetPingStatusAsync(ipAddress)
                                    UpdateLabelColor(store, status)
@@ -106,6 +123,12 @@ Public Class Form1
         Catch ex As Exception
             Return "Offline"
         End Try
+    End Function
+
+    Private Async Function ReadIniFileFromUrlAsync(url As String) As Task(Of String)
+        Using client As New HttpClient()
+            Return Await client.GetStringAsync(url)
+        End Using
     End Function
 
     Private Function InlineAssignHelper(Of T)(ByRef target As T, value As T) As T
