@@ -35,18 +35,25 @@ Public Class Form1
         ' Read the .ini file from GitHub
         Dim iniFileContent As String = Await ReadIniFileFromUrlAsync("https://raw.githubusercontent.com/AdinNCR/NCR-Fo-Monitoring/refs/heads/master/NCR%20Store%20Monitoring/nodes.ini")
 
+        ' Debug: Print the content of the ini file
+        Console.WriteLine("INI File Content:")
+        Console.WriteLine(iniFileContent)
+
         ' Process the .ini file content
         Using reader As New StringReader(iniFileContent)
             Dim line As String
             While (InlineAssignHelper(line, reader.ReadLine())) IsNot Nothing
+                ' Debug: Print each line read from the ini file
+                Console.WriteLine("Read Line: " & line)
+
                 If line.Contains("=") Then
                     Dim parts() As String = line.Split("="c)
                     If parts.Length = 2 Then
                         Dim store As String = parts(0).Trim()
                         Dim ipAndLocation() As String = parts(1).Split(","c)
                         If ipAndLocation.Length = 2 Then
-                            Dim ipAddress As String = ipAndLocation(0).Trim()
-                            Dim location As String = ipAndLocation(1).Trim()
+                            Dim ipAddress As String = ipAndLocation(1).Trim()
+                            Dim location As String = ipAndLocation(0).Trim()
                             ipAddresses(store) = (ipAddress, location)
 
                             ' Add a new label for each store
@@ -59,6 +66,9 @@ Public Class Form1
 
                             ' Set the tooltip for the label
                             toolTip.SetToolTip(label, $"IP Address: {ipAddress}, Location: {location}")
+
+                            ' Debug: Print the added label information
+                            Console.WriteLine($"Added Label: {store}, IP: {ipAddress}, Location: {location}")
                         End If
                     End If
                 End If
@@ -127,6 +137,10 @@ Public Class Form1
 
     Private Async Function ReadIniFileFromUrlAsync(url As String) As Task(Of String)
         Using client As New HttpClient()
+            client.DefaultRequestHeaders.CacheControl = New Headers.CacheControlHeaderValue() With {
+                .NoCache = True,
+                .NoStore = True
+            }
             Return Await client.GetStringAsync(url)
         End Using
     End Function
