@@ -17,7 +17,7 @@ Public Class Form1
         ' Initialize TableLayoutPanel
         tableLayoutPanel.Dock = DockStyle.Fill
         tableLayoutPanel.AutoScroll = True
-        tableLayoutPanel.ColumnCount = 15 ' Adjust the number of columns as needed
+        tableLayoutPanel.ColumnCount = 20 ' Adjust the number of columns as needed
         tableLayoutPanel.RowCount = 0
         Me.Controls.Add(tableLayoutPanel)
 
@@ -76,7 +76,7 @@ Public Class Form1
         End Using
 
         ' Initialize and start the Timer
-        Timer1.Interval = 60000 ' 60 seconds
+        Timer1.Interval = 180000 ' 60 seconds
         Timer1.Start()
 
         ' Initial status check
@@ -88,19 +88,45 @@ Public Class Form1
         Await UpdateStatusAsync()
     End Sub
 
+    'Private Async Function UpdateStatusAsync() As Task
+    '    ' Check the status of each IP address asynchronously
+    '    Dim tasks As New List(Of Task)()
+
+    '    For Each store As String In ipAddresses.Keys
+    '        Dim ipAddress As String = ipAddresses(store).Item1
+    '        tasks.Add(Task.Run(Async Function()
+    '                               Dim status As String = Await GetPingStatusAsync(ipAddress)
+    '                               UpdateLabelColor(store, status)
+    '                               Console.WriteLine($"Ping: {store}, IP: {ipAddress}, Status: {status}")
+    '                           End Function))
+
+    '    Next
+
+    '    Await Task.WhenAll(tasks)
+
+    '    ' Update the StatusStrip with the last update time
+    '    toolStripStatusLabel.Text = $"Last Updated: {DateTime.Now}"
+
+    '    ' Refresh the TableLayoutPanel to ensure it is fully updated
+    '    tableLayoutPanel.Refresh()
+    'End Function
+
     Private Async Function UpdateStatusAsync() As Task
+        ' Create a queue for the IP addresses
+        Dim ipQueue As New Queue(Of String)(ipAddresses.Values.Select(Function(x) x.Item1))
+
         ' Check the status of each IP address asynchronously
-        Dim tasks As New List(Of Task)()
+        While ipQueue.Count > 0
+            Dim ipAddress As String = ipQueue.Dequeue()
+            Dim store As String = ipAddresses.FirstOrDefault(Function(x) x.Value.Item1 = ipAddress).Key
 
-        For Each store As String In ipAddresses.Keys
-            Dim ipAddress As String = ipAddresses(store).Item1
-            tasks.Add(Task.Run(Async Function()
-                                   Dim status As String = Await GetPingStatusAsync(ipAddress)
-                                   UpdateLabelColor(store, status)
-                               End Function))
-        Next
+            Dim status As String = Await GetPingStatusAsync(ipAddress)
+            UpdateLabelColor(store, status)
+            Console.WriteLine($"Ping: {store}, IP: {ipAddress}, Status: {status}")
 
-        Await Task.WhenAll(tasks)
+            ' Delay between pings
+            Await Task.Delay(100) ' Adjust the delay as needed
+        End While
 
         ' Update the StatusStrip with the last update time
         toolStripStatusLabel.Text = $"Last Updated: {DateTime.Now}"
@@ -108,6 +134,7 @@ Public Class Form1
         ' Refresh the TableLayoutPanel to ensure it is fully updated
         tableLayoutPanel.Refresh()
     End Function
+
 
     Private Sub UpdateLabelColor(store As String, status As String)
         For Each control As Control In tableLayoutPanel.Controls
@@ -124,14 +151,15 @@ Public Class Form1
     Private Async Function GetPingStatusAsync(ipAddress As String) As Task(Of String)
         Try
             Dim ping As New Ping()
-            Dim reply As PingReply = Await ping.SendPingAsync(ipAddress, 1000)
+            Dim reply As PingReply = Await ping.SendPingAsync(ipAddress, 5000)
             If reply.Status = IPStatus.Success Then
                 Return "Online"
             Else
                 Return "Offline"
             End If
         Catch ex As Exception
-            Return "Offline"
+            Console.WriteLine($"Error pinging {ipAddress}: {ex.Message}")
+            Return "Error"
         End Try
     End Function
 
