@@ -12,12 +12,16 @@ Public Class Form1
     Private statusStrip As New StatusStrip()
     Private toolStripStatusLabel As New ToolStripStatusLabel()
     Private toolTip As New ToolTip()
+    Private iniFileUrl As String = "https://raw.githubusercontent.com/AdinNCR/NCR-Fo-Monitoring/refs/heads/master/NCR%20Store%20Monitoring/nodes.ini"
+    Private vpnServerIp As String = "10.10.0.147"
+    Private countdownTime As Integer = 120
+    Private vpnStatus As String = "Unknown"
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         ' Initialize TableLayoutPanel
         tableLayoutPanel.Dock = DockStyle.Fill
         tableLayoutPanel.AutoScroll = True
-        tableLayoutPanel.ColumnCount = 20 ' Adjust the number of columns as needed
+        tableLayoutPanel.ColumnCount = 20
         tableLayoutPanel.RowCount = 0
         Me.Controls.Add(tableLayoutPanel)
 
@@ -32,118 +36,110 @@ Public Class Form1
         toolTip.ReshowDelay = 500
         toolTip.ShowAlways = True
 
-        ' Read the .ini file from GitHub
-        Dim iniFileContent As String = Await ReadIniFileFromUrlAsync("https://raw.githubusercontent.com/AdinNCR/NCR-Fo-Monitoring/refs/heads/master/NCR%20Store%20Monitoring/nodes.ini")
+        ' Read the .ini file from URL
+        Await LoadIniFileAsync(iniFileUrl)
 
-        ' Debug: Print the content of the ini file
-        Console.WriteLine("INI File Content:")
-        Console.WriteLine(iniFileContent)
+        ' Check VPN status on startup
+        vpnStatus = Await GetPingStatusAsync(vpnServerIp)
+        toolStripStatusLabel.Text = $"VPN Status: {vpnStatus}, Time until next update: {countdownTime} seconds"
+        Timer1.Interval = 1000 ' 1 second
+        Timer1.Start()
+        Await UpdateStatusAsync()
 
-        ' Process the .ini file content
-        Using reader As New StringReader(iniFileContent)
-            Dim line As String
-            While (InlineAssignHelper(line, reader.ReadLine())) IsNot Nothing
-                ' Debug: Print each line read from the ini file
-                Console.WriteLine("Read Line: " & line)
+    End Sub
 
-                If line.Contains("=") Then
-                    Dim parts() As String = line.Split("="c)
-                    If parts.Length = 2 Then
-                        Dim store As String = parts(0).Trim()
-                        Dim ipAndLocation() As String = parts(1).Split(","c)
-                        If ipAndLocation.Length = 2 Then
-                            Dim ipAddress As String = ipAndLocation(1).Trim()
-                            Dim location As String = ipAndLocation(0).Trim()
-                            ipAddresses(store) = (ipAddress, location)
+    Private Async Function LoadIniFileAsync(url As String) As Task
+        Try
+            Dim iniFileContent As String = Await ReadIniFileFromUrlAsync(url)
+            Using reader As New StringReader(iniFileContent)
+                Dim line As String
+                While (InlineAssignHelper(line, reader.ReadLine())) IsNot Nothing
+                    If line.Contains("=") Then
+                        Dim parts() As String = line.Split("="c)
+                        If parts.Length = 2 Then
+                            Dim store As String = parts(0).Trim()
+                            Dim ipAndLocation() As String = parts(1).Split(","c)
+                            If ipAndLocation.Length = 2 Then
+                                Dim ipAddress As String = ipAndLocation(1).Trim()
+                                Dim location As String = ipAndLocation(0).Trim()
+                                ipAddresses(store) = (ipAddress, location)
 
-                            ' Add a new label for each store
-                            Dim label As New Label()
-                            label.Text = store
-                            label.Size = New Size(30, 20)
-                            label.Margin = New Padding(5)
-                            label.ForeColor = Color.White
-                            tableLayoutPanel.Controls.Add(label)
+                                ' Add a new label for each store
+                                Dim label As New Label()
+                                label.Text = store
+                                label.Size = New Size(30, 20)
+                                label.Margin = New Padding(5)
+                                label.ForeColor = Color.White
+                                tableLayoutPanel.Controls.Add(label)
 
-                            ' Set the tooltip for the label
-                            toolTip.SetToolTip(label, $"IP Address: {ipAddress}, Location: {location}")
-
-                            ' Debug: Print the added label information
-                            Console.WriteLine($"Added Label: {store}, IP: {ipAddress}, Location: {location}")
+                                ' Set the tooltip for the label
+                                toolTip.SetToolTip(label, $"IP Address: {ipAddress}, Location: {location}")
+                            End If
                         End If
                     End If
+                End While
+            End Using
+        Catch ex As Exception
+            MessageBox.Show($"Error loading INI file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Function
+
+    Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
+        If countdownTime > 0 Then
+            countdownTime -= 1 ' Decrement by 1 second
+            toolStripStatusLabel.Text = $"VPN Status: {vpnStatus}, Time until next update: {countdownTime} seconds"
+        Else
+            countdownTime = 120 ' Reset countdown
+            UpdateVpnStatus()
+            UpdateStatusAsync()
+        End If
+    End Sub
+
+
+
+
+    Private Async Sub UpdateVpnStatus()
+        vpnStatus = Await GetPingStatusAsync(vpnServerIp)
+        toolStripStatusLabel.Text = $"VPN Status: {vpnStatus}, Time until next update: {countdownTime} seconds"
+
+        If vpnStatus = "Offline" Then
+            ' Change all labels to light gray if VPN is not connected
+            For Each control As Control In tableLayoutPanel.Controls
+                If TypeOf control Is Label Then
+                    control.BackColor = Color.LightGray
                 End If
-            End While
-        End Using
-
-        ' Initialize and start the Timer
-        Timer1.Interval = 180000 ' 60 seconds
-        Timer1.Start()
-
-        ' Initial status check
-        Await UpdateStatusAsync()
+            Next
+        End If
     End Sub
-
-    Private Async Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
-        ' Update the status of each IP address every minute
-        Await UpdateStatusAsync()
-    End Sub
-
-    'Private Async Function UpdateStatusAsync() As Task
-    '    ' Check the status of each IP address asynchronously
-    '    Dim tasks As New List(Of Task)()
-
-    '    For Each store As String In ipAddresses.Keys
-    '        Dim ipAddress As String = ipAddresses(store).Item1
-    '        tasks.Add(Task.Run(Async Function()
-    '                               Dim status As String = Await GetPingStatusAsync(ipAddress)
-    '                               UpdateLabelColor(store, status)
-    '                               Console.WriteLine($"Ping: {store}, IP: {ipAddress}, Status: {status}")
-    '                           End Function))
-
-    '    Next
-
-    '    Await Task.WhenAll(tasks)
-
-    '    ' Update the StatusStrip with the last update time
-    '    toolStripStatusLabel.Text = $"Last Updated: {DateTime.Now}"
-
-    '    ' Refresh the TableLayoutPanel to ensure it is fully updated
-    '    tableLayoutPanel.Refresh()
-    'End Function
 
     Private Async Function UpdateStatusAsync() As Task
-        ' Create a queue for the IP addresses
-        Dim ipQueue As New Queue(Of String)(ipAddresses.Values.Select(Function(x) x.Item1))
+        ' First, check the VPN server status
+        Dim vpnStatus As String = Await GetPingStatusAsync(vpnServerIp)
 
-        ' Check the status of each IP address asynchronously
-        While ipQueue.Count > 0
-            Dim ipAddress As String = ipQueue.Dequeue()
-            Dim store As String = ipAddresses.FirstOrDefault(Function(x) x.Value.Item1 = ipAddress).Key
+        If vpnStatus = "Online" Then
+            ' VPN is connected, proceed to check other nodes
+            Dim ipQueue As New Queue(Of String)(ipAddresses.Values.Select(Function(x) x.Item1))
 
-            Dim status As String = Await GetPingStatusAsync(ipAddress)
-            UpdateLabelColor(store, status)
-            Console.WriteLine($"Ping: {store}, IP: {ipAddress}, Status: {status}")
+            While ipQueue.Count > 0
+                Dim ipAddress As String = ipQueue.Dequeue()
+                Dim store As String = ipAddresses.FirstOrDefault(Function(x) x.Value.Item1 = ipAddress).Key
 
-            ' Delay between pings
-            Await Task.Delay(100) ' Adjust the delay as needed
-        End While
+                Dim status As String = Await GetPingStatusAsync(ipAddress)
+                UpdateLabelColor(store, status)
 
-        ' Update the StatusStrip with the last update time
-        toolStripStatusLabel.Text = $"Last Updated: {DateTime.Now}"
-
-        ' Refresh the TableLayoutPanel to ensure it is fully updated
-        tableLayoutPanel.Refresh()
+                ' Delay between pings
+                Await Task.Delay(100)
+            End While
+        Else
+            tableLayoutPanel.Refresh()
+        End If
     End Function
 
 
     Private Sub UpdateLabelColor(store As String, status As String)
         For Each control As Control In tableLayoutPanel.Controls
             If TypeOf control Is Label AndAlso control.Text = store Then
-                If status = "Online" Then
-                    control.BackColor = Color.Green
-                ElseIf status = "Offline" Then
-                    control.BackColor = Color.Red
-                End If
+                control.BackColor = If(status = "Online", Color.Green, Color.Red)
             End If
         Next
     End Sub
@@ -151,14 +147,9 @@ Public Class Form1
     Private Async Function GetPingStatusAsync(ipAddress As String) As Task(Of String)
         Try
             Dim ping As New Ping()
-            Dim reply As PingReply = Await ping.SendPingAsync(ipAddress, 5000)
-            If reply.Status = IPStatus.Success Then
-                Return "Online"
-            Else
-                Return "Offline"
-            End If
+            Dim reply As PingReply = Await ping.SendPingAsync(ipAddress, 1000)
+            Return If(reply.Status = IPStatus.Success, "Online", "Offline")
         Catch ex As Exception
-            Console.WriteLine($"Error pinging {ipAddress}: {ex.Message}")
             Return "Error"
         End Try
     End Function
